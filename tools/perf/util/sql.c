@@ -231,22 +231,29 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
   return S;
 }
 
+// TODO check if int64 to u64 conversion succeed
 void perf_sql__bind_int64(sqlite3_stmt *stmt, const char *zName, sqlite3_int64 v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  if (idx)
-    CALL_SQLITE_ASSERT(bind_int64(stmt, idx, v));
+  assert(idx);
+  CALL_SQLITE_ASSERT(bind_int64(stmt, idx, v));
 }
 
 void perf_sql__bind_int(sqlite3_stmt *stmt, const char *zName, int v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  if (idx)
-    CALL_SQLITE_ASSERT(bind_int(stmt, idx, v));
+  assert(idx);
+  CALL_SQLITE_ASSERT(bind_int(stmt, idx, v));
 }
 
 void perf_sql__bind_text(sqlite3_stmt *stmt, const char *zName, const char *v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  if (idx)
-    CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_STATIC));
+  assert (idx);
+  CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_STATIC));
+}
+
+static void perf_sql__bind_text_transient(sqlite3_stmt *stmt, const char *zName, const char *v) {
+  int idx = sqlite3_bind_parameter_index(stmt, zName);
+  assert (idx);
+  CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_TRANSIENT));
 }
 
 sqlite3_stmt *perf_sql__get_stmt(struct perf_sql *S, struct perf_evsel *evsel) {
@@ -331,7 +338,7 @@ static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr
 		srcline = get_srcline(map->dso,
 				      map__rip_2objdump(map, addr), NULL, true);
 		if (srcline != SRCLINE_UNKNOWN)
-      perf_sql__bind_text(S->stmt_ip, "@srcline", srcline);
+      perf_sql__bind_text_transient(S->stmt_ip, "@srcline", srcline);
 		free_srcline(srcline);
 	}
 }
@@ -540,6 +547,7 @@ void perf_sql__insert_branch_stack(struct perf_sql *S,
     strcat(branchstack_val, rowidstr);
 	}
 
-  CALL_SQLITE(bind_text(stmt_sample, idx, branchstack_val, -1, SQLITE_STATIC),S->db);
+  CALL_SQLITE(bind_text(stmt_sample, idx, branchstack_val, -1, SQLITE_TRANSIENT),S->db);
+  free(branchstack_val);
 }
 
