@@ -43,6 +43,8 @@ libperf-y += values.o
 libperf-y += debug.o
 libperf-y += machine.o
 libperf-y += map.o
+libperf-y += sqlite3.o
+libperf-y += sql.o
 libperf-y += pstack.o
 libperf-y += session.o
 libperf-y += ordered-events.o
@@ -140,6 +142,12 @@ CFLAGS_find_next_bit.o += -Wno-unused-parameter -DETC_PERFCONFIG="BUILD_STR($(ET
 CFLAGS_rbtree.o        += -Wno-unused-parameter -DETC_PERFCONFIG="BUILD_STR($(ETC_PERFCONFIG_SQ))"
 CFLAGS_hweight.o       += -Wno-unused-parameter -DETC_PERFCONFIG="BUILD_STR($(ETC_PERFCONFIG_SQ))"
 CFLAGS_parse-events.o  += -Wno-redundant-decls
+
+CFLAGS_sqlite3.o  += -w \
+   -Os -I. -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_FTS4 \
+   -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1 \
+   -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
+   -DHAVE_USLEEP -DHAVE_READLINE
 
 $(OUTPUT)util/kallsyms.o: ../lib/symbol/kallsyms.c FORCE
 	$(call rule_mkdir)

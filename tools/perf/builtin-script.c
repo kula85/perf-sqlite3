@@ -18,6 +18,7 @@
 #include "util/sort.h"
 #include "util/data.h"
 #include "util/auxtrace.h"
+#include "util/sql.h"
 #include <linux/bitmap.h>
 
 static char const		*script_name;
@@ -27,6 +28,8 @@ static u64			last_timestamp;
 static u64			nr_unordered;
 static bool			no_callchain;
 static bool			latency_format;
+static bool			dump_sql_file;
+static struct perf_sql *sql;
 static bool			system_wide;
 static bool			print_flags;
 static bool			nanosecs;
@@ -643,6 +646,40 @@ static void process_event(union perf_event *event, struct perf_sample *sample,
 	printf("\n");
 }
 
+static void process_event_sql(union perf_event *event,
+                              struct perf_sample *sample,
+			                        struct perf_evsel *evsel,
+                              struct addr_location *al)
+{
+  struct thread *thread = al->thread;
+  struct perf_event_attr *attr = &evsel->attr;
+  sqlite3_stmt *sample_stmt = perf_sql__get_stmt(sql, evsel);
+
+  perf_sql__bind_sample_int64(sql, evsel, "@time", sample->time);
+  perf_sql__bind_sample_text(sql, evsel, "@comm", thread__comm_str(thread));
+  perf_sql__bind_sample_int64(sql, evsel, "@pid", sample->pid);
+  perf_sql__bind_sample_int64(sql, evsel, "@tid", sample->tid);
+  perf_sql__bind_sample_int64(sql, evsel, "@cpu", sample->cpu);
+  perf_sql__bind_sample_text(sql, evsel, "@event_name", perf_evsel__name(evsel));
+  perf_sql__bind_sample_int64(sql, evsel, "@stream_id", sample->stream_id);
+  perf_sql__bind_sample_int64(sql, evsel, "@period", sample->period);
+  perf_sql__bind_sample_int64(sql, evsel, "@weight", sample->weight);
+  erf_sql__bind_sample_int64(sql, evsel, "@data_src", sample->data_src);
+  perf_sql__bind_sample_int64(sql, evsel, "@transaction", sample->transaction);
+  perf_sql__bind_sample_int64(sql, evsel, "@sample_id", sample->id);
+  //perf_sql__bind_sample_int(sql, evsel, "@attr_id", perf_sql__get_attr_id(sql,evsel));
+
+  perf_sql__insert_ip(sql, evsel, sample, al);
+  perf_sql__insert_callchain(sql, evsel, sample, al, scripting_max_stack);
+  perf_sql__insert_branch_stack(sql, evsel, event, sample, thread, attr);
+  perf_sql__insert_regs(sql, evsel, event, sample, thread, attr, "@iregs_id");
+  perf_sql__insert_regs(sql, evsel, event, sample, thread, attr, "@uregs_id");
+
+  CALL_SQLITE_EXPECT(step(sample_stmt),DONE,sql->db);
+  CALL_SQLITE(reset(sample_stmt),sql->db);
+  CALL_SQLITE(clear_bindings(sample_stmt),sql->db);
+}
+
 static int default_start_script(const char *script __maybe_unused,
 				int argc __maybe_unused,
 				const char **argv __maybe_unused)
@@ -982,7 +1019,14 @@ static int __cmd_script(struct perf_script *script)
 	if (script->show_switch_events)
 		script->tool.context_switch = process_switch_event;
 
-	ret = perf_session__process_events(script->session);
+  if (dump_sql_file) {
+    scripting_ops->process_event = process_event_sql;
+    sql = perf_sql__new("test.sqlite3", script->session->evlist);
+    perf_sql__exec(sql->db, "BEGIN TRANSACTION");
+	  ret = perf_session__process_events(script->session);
+    perf_sql__exec(sql->db, "END TRANSACTION");
+  } else
+    ret = perf_session__process_events(script->session);
 
 	if (debug_mode)
 		pr_err("Misordered timestamps: %" PRIu64 "\n", nr_unordered);
@@ -1735,6 +1779,8 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 		    "dump raw trace in ASCII"),
 	OPT_INCR('v', "verbose", &verbose,
 		 "be more verbose (show symbol address, etc)"),
+	OPT_BOOLEAN('\0', "dump-sql", &dump_sql_file,
+        "dump sql file"),
 	OPT_BOOLEAN('L', "Latency", &latency_format,
 		    "show latency attributes (irqs/preemption disabled, etc)"),
 	OPT_CALLBACK_NOOPT('l', "list", NULL, NULL, "list available scripts",
