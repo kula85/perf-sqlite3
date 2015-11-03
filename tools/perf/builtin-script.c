@@ -664,7 +664,7 @@ static void process_event_sql(union perf_event *event,
   perf_sql__bind_sample_int64(sql, evsel, "@stream_id", sample->stream_id);
   perf_sql__bind_sample_int64(sql, evsel, "@period", sample->period);
   perf_sql__bind_sample_int64(sql, evsel, "@weight", sample->weight);
-  erf_sql__bind_sample_int64(sql, evsel, "@data_src", sample->data_src);
+  perf_sql__bind_sample_int64(sql, evsel, "@data_src", sample->data_src);
   perf_sql__bind_sample_int64(sql, evsel, "@transaction", sample->transaction);
   perf_sql__bind_sample_int64(sql, evsel, "@sample_id", sample->id);
   //perf_sql__bind_sample_int(sql, evsel, "@attr_id", perf_sql__get_attr_id(sql,evsel));

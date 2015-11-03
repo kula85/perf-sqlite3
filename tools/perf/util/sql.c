@@ -28,7 +28,7 @@ static void new_table_attr(struct perf_sql *S) {
           "insert into attr values(" \
           "null,@type,@size,@config,@period,@sample_type,@read_format,@flags,@wakeup,@bp_type,@config1,@config2,@branch_sample_type,@sample_regs_user,@sample_stack_user,@__reserved_2,@sample_regs_intr);";
   perf_sql__exec(S->db, table);
-  CALL_SQLITE(prepare_v2(S->db, stmt, 
+  CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_attr, NULL),S->db);
 }
 
@@ -44,7 +44,7 @@ static void new_table_ip(struct perf_sql *S) {
   const char *stmt = \
           "insert into ip values(null,@ip,@sym,@off,@dso,@srcline);";
   perf_sql__exec(S->db, table);
-  CALL_SQLITE(prepare_v2(S->db, stmt, 
+  CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_ip, NULL),S->db);
 }
 
@@ -61,9 +61,9 @@ static void new_table_branch_entry(struct perf_sql *S) {
   const char *stmt = \
           "insert into branch_entry values(null,@from,@to,@predicted,@in_tx,@abort,@cycles);";
   perf_sql__exec(S->db, table);
-  CALL_SQLITE(prepare_v2(S->db, stmt, 
+  CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_branch_entry, NULL),S->db);
-} 
+}
 
 static void new_table_regs(struct perf_sql *S) {
   const char *table = \
@@ -96,7 +96,7 @@ static void new_table_regs(struct perf_sql *S) {
   const char *stmt = \
           "insert into regs values(null,@ax,@bx,@cx,@dx,@si,@di,@bp,@sp,@ip,@flags,@cs,@ss,@ds,@es,@fs,@gs,@r8,@r9,@r10,@r11,@r12,@r13,@r14,@r15);";
   perf_sql__exec(S->db, table);
-  CALL_SQLITE(prepare_v2(S->db, stmt, 
+  CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_regs, NULL),S->db);
 }
 
@@ -108,7 +108,7 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
   sqlite3 **db = &S->db;
 
   // Open db
-  CALL_SQLITE(open_v2(name, db, 
+  CALL_SQLITE(open_v2(name, db,
                       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL),*db);
 
   // Enable foreign key
@@ -117,7 +117,7 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
 
   new_table_attr(S);
   new_table_ip(S);
-  
+
   S->nr = evlist->nr_entries;
 	evlist__for_each(evlist, evsel) {
     char idx[8];
@@ -126,7 +126,7 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
     struct perf_event_attr *attr = &evsel->attr;
 
     assert(attr->sample_type && "sample without any information? no way");
-    S->sample[++i].evsel = evsel; 
+    S->sample[++i].evsel = evsel;
 
     // Create parent tables
     if ((attr->sample_type & PERF_SAMPLE_REGS_USER) ||
@@ -221,7 +221,7 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
 
     // Create table & statements
     perf_sql__exec(*db, create_table_sample);
-    CALL_SQLITE(prepare_v2(*db, create_stmt_sample, 
+    CALL_SQLITE(prepare_v2(*db, create_stmt_sample,
           strlen(create_stmt_sample)+1, &S->sample[i].stmt_sample, NULL),*db);
   }
 
@@ -287,25 +287,25 @@ void perf_sql__bind_sample_text(struct perf_sql *S, struct perf_evsel *evsel,
   perf_sql__bind_text(stmt, zName, v);
 }
 
-static void perf_sql__bind_symname_offs(struct perf_sql *S, 
+static void perf_sql__bind_symname_offs(struct perf_sql *S,
             const struct symbol *sym,
 				    const struct addr_location *al)
 {
 	unsigned long offset;
 
 	if (sym && sym->name) {
-    perf_sql__bind_text(S->stmt_ip, "sym", sym->name);
+    perf_sql__bind_text(S->stmt_ip, "@sym", sym->name);
 		if (al) {
 			if (al->addr < sym->end)
 				offset = al->addr - sym->start;
 			else
 				offset = al->addr - al->map->start - sym->start;
-      perf_sql__bind_int64(S->stmt_ip, "off", offset);
+      perf_sql__bind_int64(S->stmt_ip, "@off", offset);
 		} else
-      perf_sql__bind_int(S->stmt_ip, "off", -1);
+      perf_sql__bind_int(S->stmt_ip, "@off", -1);
 	} else {
-    perf_sql__bind_text(S->stmt_ip, "sym", "[unknown]");
-    perf_sql__bind_int64(S->stmt_ip, "off", -1);
+    perf_sql__bind_text(S->stmt_ip, "@sym", "[unknown]");
+    perf_sql__bind_int64(S->stmt_ip, "@off", -1);
   }
 }
 
@@ -320,7 +320,7 @@ static void perf_sql__bind_dsoname(struct perf_sql *S, struct map *map)
 			dsoname = map->dso->name;
 	}
 
-  perf_sql__bind_text(S->stmt_ip, "dso", dsoname);
+  perf_sql__bind_text(S->stmt_ip, "@dso", dsoname);
 }
 
 static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr)
@@ -331,7 +331,7 @@ static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr
 		srcline = get_srcline(map->dso,
 				      map__rip_2objdump(map, addr), NULL, true);
 		if (srcline != SRCLINE_UNKNOWN)
-      perf_sql__bind_text(S->stmt_ip, "srcline", srcline);
+      perf_sql__bind_text(S->stmt_ip, "@srcline", srcline);
 		free_srcline(srcline);
 	}
 }
@@ -346,7 +346,7 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
   if (al->sym && al->sym->ignore)
     return;
 
-  perf_sql__bind_int64(S->stmt_ip, "ip", sample->ip);
+  perf_sql__bind_int64(S->stmt_ip, "@ip", sample->ip);
   perf_sql__bind_symname_offs(S, al->sym, al);
   perf_sql__bind_dsoname(S, al->map);
   perf_sql__bind_srcline(S, al->map, al->addr);
@@ -354,7 +354,7 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
   CALL_SQLITE(reset(S->stmt_ip),S->db);
   CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
   rowid = sqlite3_last_insert_rowid(S->db);
-  perf_sql__bind_sample_int64(S, evsel, "ip_id", rowid);
+  perf_sql__bind_sample_int64(S, evsel, "@ip_id", rowid);
 }
 
 void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
@@ -396,7 +396,7 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
     if (node->sym && node->sym->ignore)
       goto next;
 
-    perf_sql__bind_int64(S->stmt_ip, "ip", node->ip);
+    perf_sql__bind_int64(S->stmt_ip, "@ip", node->ip);
 
     if (node->map)
       addr = node->map->map_ip(node->map, node->ip);
@@ -447,7 +447,11 @@ void perf_sql__insert_regs(struct perf_sql *S, struct perf_evsel *evsel,
 
 	for_each_set_bit(r, (unsigned long *) &mask, sizeof(mask) * 8) {
 		u64 val = regs->regs[i++];
-    perf_sql__bind_int64(S->stmt_regs, perf_reg_name(r), val);
+    char regname[10];
+    regname[0] = '\0';
+    strcat(regname, "@");
+    strcat(regname, perf_reg_name(r));
+    perf_sql__bind_int64(S->stmt_regs, regname, val);
 	}
   CALL_SQLITE_EXPECT(step(S->stmt_regs),DONE,S->db);
   CALL_SQLITE(reset(S->stmt_regs),S->db);
@@ -463,7 +467,7 @@ static sqlite3_int64 perf_sql__insert_branch_addr(struct perf_sql *S,
 	memset(&al, 0, sizeof(al));
 
   thread__find_addr_map(thread, cpumode, MAP__FUNCTION, addr, &al);
-  perf_sql__bind_int64(S->stmt_ip, "ip", addr);
+  perf_sql__bind_int64(S->stmt_ip, "@ip", addr);
   if (al.map)
     al.sym = map__find_symbol(al.map, al.addr, NULL);
   perf_sql__bind_symname_offs(S, al.sym, &al);
@@ -484,7 +488,7 @@ mispred_str(struct branch_entry *br)
 	return br->flags.predicted ? "P" : "M";
 }
 
-void perf_sql__insert_branch_stack(struct perf_sql *S, 
+void perf_sql__insert_branch_stack(struct perf_sql *S,
         struct perf_evsel *evsel,
         union perf_event *event __maybe_unused,
 			  struct perf_sample *sample,
@@ -517,15 +521,15 @@ void perf_sql__insert_branch_stack(struct perf_sql *S,
     from_id = perf_sql__insert_branch_addr(S, thread, cpumode, from);
     to_id = perf_sql__insert_branch_addr(S, thread, cpumode, to);
 
-    perf_sql__bind_int64(S->stmt_branch_entry, "from", from_id);
-    perf_sql__bind_int64(S->stmt_branch_entry, "to", to_id);
-    perf_sql__bind_text(S->stmt_branch_entry, "predicted",
+    perf_sql__bind_int64(S->stmt_branch_entry, "@from", from_id);
+    perf_sql__bind_int64(S->stmt_branch_entry, "@to", to_id);
+    perf_sql__bind_text(S->stmt_branch_entry, "@predicted",
                         mispred_str(br->entries+i));
-    perf_sql__bind_text(S->stmt_branch_entry, "in_tx",
+    perf_sql__bind_text(S->stmt_branch_entry, "@in_tx",
                         br->entries[i].flags.in_tx? "X" : "-");
-    perf_sql__bind_text(S->stmt_branch_entry, "abort",
+    perf_sql__bind_text(S->stmt_branch_entry, "@abort",
                         br->entries[i].flags.abort? "A" : "-");
-    perf_sql__bind_int64(S->stmt_branch_entry, "cycle",
+    perf_sql__bind_int64(S->stmt_branch_entry, "@cycle",
                          br->entries[i].flags.cycles);
 
     CALL_SQLITE_EXPECT(step(S->stmt_branch_entry),DONE,S->db);
