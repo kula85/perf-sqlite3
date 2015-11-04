@@ -49,6 +49,7 @@ struct perf_sql {
   sqlite3_stmt *stmt_regs;
   sqlite3_stmt *stmt_regs_sel;
   sqlite3_stmt *stmt_branch_entry;
+  sqlite3_stmt *stmt_branch_entry_sel;
   u8 nr;
   struct ev2stmt sample[0];
 };

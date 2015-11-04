@@ -30,9 +30,29 @@ static void new_table_attr(struct perf_sql *S) {
   const char *stmt = \
           "insert or ignore into attr values(" \
           "null,@type,@size,@config,@period,@sample_type,@read_format,@flags,@wakeup,@bp_type,@config1,@config2,@branch_sample_type,@sample_regs_user,@sample_stack_user,@__reserved_2,@sample_regs_intr);";
+  const char *stmt_sel = \
+          "select id from attr where " \
+          "type = @type and " \
+          "size = @size and " \
+          "config = @config and " \
+          "period = @period and " \
+          "sample_type = @sample_type and " \
+          "read_format = @read_format and " \
+          "flags = @flags and " \
+          "wakeup = @wakeup and " \
+          "bp_type = @bp_type and " \
+          "config1 = @config1 and " \
+          "config2 = @config2 and " \
+          "branch_sample_type = @branch_sample_type and " \
+          "sample_regs_user = @sample_regs_user and " \
+          "sample_stack_user = @sample_stack_user and " \
+          "__reserved_2 = @__reserved_2 and " \
+          "sample_regs_intr = @sample_regs_intr;";
   perf_sql__exec(S->db, table);
   CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_attr, NULL),S->db);
+  CALL_SQLITE(prepare_v2(S->db, stmt_sel,
+              strlen(stmt_sel)+1, &S->stmt_attr_sel, NULL),S->db);
 }
 
 static void new_table_ip(struct perf_sql *S) {
@@ -69,14 +89,25 @@ static void new_table_branch_entry(struct perf_sql *S) {
                 "\"from\" integer references ip(id),        " \
                 "\"to\" integer references ip(id),          " \
                 "predicted text,                        " \
-                "in_tx integer,                         " \
-                "abort integer,                         " \
-                "cycles integer);                       ";
+                "in_tx text,                         " \
+                "abort text,                         " \
+                "cycles integer,                        " \
+                "unique(\"from\",\"to\",predicted,in_tx,abort,cycles));";
   const char *stmt = \
-          "insert into branch_entry values(null,@from,@to,@predicted,@in_tx,@abort,@cycles);";
+          "insert or ignore into branch_entry values(null,@from,@to,@predicted,@in_tx,@abort,@cycles);";
+  const char *stmt_sel = \
+          "select id from branch_entry where " \
+          "\"from\" = @from and " \
+          "\"to\" = @to and " \
+          "predicted = @predicted and " \
+          "in_tx = @in_tx and " \
+          "abort = @abort and " \
+          "cycles = @cycles;";
   perf_sql__exec(S->db, table);
   CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_branch_entry, NULL),S->db);
+  CALL_SQLITE(prepare_v2(S->db, stmt_sel,
+              strlen(stmt_sel)+1, &S->stmt_branch_entry_sel, NULL),S->db);
 }
 
 static void new_table_regs(struct perf_sql *S) {
@@ -200,7 +231,7 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
     }
 
     if (attr->sample_type & PERF_SAMPLE_ID) {
-      strcat(create_table_sample, "sample_id,");
+      strcat(create_table_sample, "sample_id integer,");
       strcat(create_stmt_sample, "@sample_id,");
 
       // TODO
@@ -343,8 +374,6 @@ void perf_sql__bind_sample_text(struct perf_sql *S, struct perf_evsel *evsel,
     perf_sql__bind_##__f(__a1 ## _sel, __a2, __a3); \
   } while(0);
 
-
-
 static void perf_sql__bind_symname_offs(struct perf_sql *S,
             const struct symbol *sym,
 				    const struct addr_location *al)
@@ -422,11 +451,8 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
   CALL_SQLITE(reset(S->stmt_ip),S->db);
   CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
 
- // printf("%s\n", sqlite3_sql(S->stmt_ip_sel));
   CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
- // printf("xxx\n");
   rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
-  //rowid = sqlite3_last_insert_rowid(S->db);
   perf_sql__bind_sample_int64(S, evsel, "@ip_id", rowid);
 
   CALL_SQLITE(reset(S->stmt_ip_sel),S->db);
@@ -490,7 +516,6 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
 
     CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
     rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
-    //rowid = sqlite3_last_insert_rowid(S->db);
     snprintf(rowidstr, intlen, "%lld/", rowid);
     strcat(callchain_val, rowidstr);
     CALL_SQLITE(reset(S->stmt_ip_sel),S->db);
@@ -576,6 +601,32 @@ mispred_str(struct branch_entry *br)
 	return br->flags.predicted ? "P" : "M";
 }
 
+
+
+  // static int callback(void *NotUsed __maybe_unused, int argc, char **argv, char **azColName)
+  // {
+  //   int i;
+  //   int rowpr=argc-1;
+  //   //NotUsed=0;
+  //   printf ("\n ******** Inside Callback\n");
+  //   //printf("\n %s ",__FUNCTION__);
+  //   for(i=0; i<rowpr; i++)
+  //     printf("%s ",azColName[i]);
+
+  //   printf("%s\n",azColName[rowpr]);
+
+
+
+  //   for(i=0; i<rowpr; i++){
+  //     printf("%s ",  argv[i] ? argv[i] : "NULL");
+
+  //   }
+  //   printf("%s\n",  argv[rowpr] ? argv[rowpr] : "NULL");
+
+  //   return 0;
+  // }
+
+
 void perf_sql__insert_branch_stack(struct perf_sql *S,
         struct perf_evsel *evsel,
         union perf_event *event __maybe_unused,
@@ -593,6 +644,8 @@ void perf_sql__insert_branch_stack(struct perf_sql *S,
   char rowidstr[intlen];
   char *branchstack_val = NULL;
 
+  //int  ret = 0;
+
 	if (!(br && br->nr))
 		return;
 
@@ -609,24 +662,38 @@ void perf_sql__insert_branch_stack(struct perf_sql *S,
     from_id = perf_sql__insert_branch_addr(S, thread, cpumode, from);
     to_id = perf_sql__insert_branch_addr(S, thread, cpumode, to);
 
-    perf_sql__bind_int64(S->stmt_branch_entry, "@from", from_id);
-    perf_sql__bind_int64(S->stmt_branch_entry, "@to", to_id);
-    perf_sql__bind_text(S->stmt_branch_entry, "@predicted",
+    BIND_INSERT_AND_SELECT(int64, S->stmt_branch_entry, "@from", from_id);
+   // printf("%lld\n",from_id);
+    BIND_INSERT_AND_SELECT(int64, S->stmt_branch_entry, "@to", to_id);
+   // printf("%lld\n",to_id);
+    BIND_INSERT_AND_SELECT(text, S->stmt_branch_entry, "@predicted",
                         mispred_str(br->entries+i));
-    perf_sql__bind_text(S->stmt_branch_entry, "@in_tx",
+   // printf("%s\n",  mispred_str(br->entries+i));
+    BIND_INSERT_AND_SELECT(text, S->stmt_branch_entry, "@in_tx",
                         br->entries[i].flags.in_tx? "X" : "-");
-    perf_sql__bind_text(S->stmt_branch_entry, "@abort",
+   // printf("%s\n", br->entries[i].flags.in_tx? "X" : "-");
+    BIND_INSERT_AND_SELECT(text, S->stmt_branch_entry, "@abort",
                         br->entries[i].flags.abort? "A" : "-");
-    perf_sql__bind_int64(S->stmt_branch_entry, "@cycle",
+   // printf("%s\n", br->entries[i].flags.abort? "A" : "-");
+    BIND_INSERT_AND_SELECT(int, S->stmt_branch_entry, "@cycles",
                          br->entries[i].flags.cycles);
+                         //10);
+   // printf("%d\n",br->entries[i].flags.cycles);
 
     CALL_SQLITE_EXPECT(step(S->stmt_branch_entry),DONE,S->db);
     CALL_SQLITE(reset(S->stmt_branch_entry),S->db);
     CALL_SQLITE(clear_bindings(S->stmt_branch_entry),S->db);
-    rowid = sqlite3_last_insert_rowid(S->db);
+
+    //sqlite3_exec(S->db, "select * from branch_entry;",callback,NULL,NULL);
+    //sqlite3_exec(S->db,create_table1,callback,handle,&errmsg);
+
+    CALL_SQLITE_EXPECT(step(S->stmt_branch_entry_sel),ROW,S->db);
+    rowid = sqlite3_column_int64(S->stmt_branch_entry_sel, 0);
     snprintf(rowidstr, intlen, "%lld/", rowid);
     strcat(branchstack_val, rowidstr);
-	}
+	  CALL_SQLITE(reset(S->stmt_branch_entry_sel),S->db);
+    CALL_SQLITE(clear_bindings(S->stmt_branch_entry_sel),S->db);
+  }
 
   CALL_SQLITE(bind_text(stmt_sample, idx, branchstack_val, -1, SQLITE_TRANSIENT),S->db);
   free(branchstack_val);
