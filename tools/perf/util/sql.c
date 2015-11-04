@@ -4,8 +4,6 @@
 #include "machine.h"
 #include "sql.h"
 
-// TODO use functions like sqlite3_snprintf save on memory allocation.
-
 static void new_table_attr(struct perf_sql *S) {
   const char *table = \
           "CREATE TABLE attr(" \
@@ -59,7 +57,7 @@ static void new_table_ip(struct perf_sql *S) {
   const char *table = \
           "CREATE TABLE ip(" \
                 "id integer primary key," \
-                "ip integer," \
+                "ip text," \
                 "sym text," \
                 "off integer," \
                 "dso text," \
@@ -70,7 +68,7 @@ static void new_table_ip(struct perf_sql *S) {
   const char *stmt_sel = "select id from ip where " \
          "ip = @ip and " \
          "sym = @sym and " \
-         "off = @off and " \
+         "off is @off and " \
          "dso = @dso and " \
          "srcline is @srcline;";
   perf_sql__exec(S->db, table);
@@ -372,7 +370,7 @@ void perf_sql__bind_sample_text(struct perf_sql *S, struct perf_evsel *evsel,
   do {  \
     perf_sql__bind_##__f(__a1, __a2, __a3);  \
     perf_sql__bind_##__f(__a1 ## _sel, __a2, __a3); \
-  } while(0);
+  } while(0)
 
 static void perf_sql__bind_symname_offs(struct perf_sql *S,
             const struct symbol *sym,
@@ -390,15 +388,9 @@ static void perf_sql__bind_symname_offs(struct perf_sql *S,
 				offset = al->addr - al->map->start - sym->start;
       BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", offset);
      // printf("%lu\n",offset);
-		} else
-      BIND_INSERT_AND_SELECT(int, S->stmt_ip, "@off", -1);
-     // printf("-1\n");
-	} else {
+		}
+	} else
     BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@sym", "[unknown]");
-   // printf("[unknown]\n");
-    BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", -1);
-   // printf("-1\n");
-  }
 }
 
 static void perf_sql__bind_dsoname(struct perf_sql *S, struct map *map)
@@ -437,12 +429,14 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
 			                   struct addr_location *al)
 {
   sqlite3_int64 rowid = 0;
+  char *ipstr = NULL;
 
   if (al->sym && al->sym->ignore)
     return;
 
-  BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", sample->ip);
- // printf("%lu\n",sample->ip);
+  ipstr = sqlite3_mprintf("%" PRIx64, sample->ip);
+  BIND_INSERT_AND_SELECT(text_transient, S->stmt_ip, "@ip", ipstr);
+  sqlite3_free(ipstr);
   perf_sql__bind_symname_offs(S, al->sym, al);
   perf_sql__bind_dsoname(S, al->map);
   perf_sql__bind_srcline(S, al->map, al->addr);
@@ -490,6 +484,7 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
 
   while (stack_depth) {
     u64 addr = 0;
+    char *ipstr = NULL;
 
     node = callchain_cursor_current(&callchain_cursor);
     if (!node)
@@ -498,7 +493,9 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
     if (node->sym && node->sym->ignore)
       goto next;
 
-    BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", node->ip);
+    ipstr = sqlite3_mprintf("%" PRIx64, node->ip);
+    BIND_INSERT_AND_SELECT(text_transient, S->stmt_ip, "@ip", ipstr);
+    sqlite3_free(ipstr);
 
     if (node->map)
       addr = node->map->map_ip(node->map, node->ip);
@@ -571,10 +568,15 @@ static sqlite3_int64 perf_sql__insert_branch_addr(struct perf_sql *S,
 {
   sqlite3_int64 rowid = 0;
 	struct addr_location al;
+  char *ipstr = NULL;
 	memset(&al, 0, sizeof(al));
 
   thread__find_addr_map(thread, cpumode, MAP__FUNCTION, addr, &al);
-  BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", addr);
+
+  ipstr = sqlite3_mprintf("%" PRIx64, addr);
+  BIND_INSERT_AND_SELECT(text_transient, S->stmt_ip, "@ip", ipstr);
+  sqlite3_free(ipstr);
+
   if (al.map)
     al.sym = map__find_symbol(al.map, al.addr, NULL);
   perf_sql__bind_symname_offs(S, al.sym, &al);
