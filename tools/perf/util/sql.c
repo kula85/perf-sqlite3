@@ -353,17 +353,22 @@ static void perf_sql__bind_symname_offs(struct perf_sql *S,
 
 	if (sym && sym->name) {
     BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@sym", sym->name);
+   // printf("%s\n",sym->name);
 		if (al) {
 			if (al->addr < sym->end)
 				offset = al->addr - sym->start;
 			else
 				offset = al->addr - al->map->start - sym->start;
       BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", offset);
+     // printf("%lu\n",offset);
 		} else
       BIND_INSERT_AND_SELECT(int, S->stmt_ip, "@off", -1);
+     // printf("-1\n");
 	} else {
     BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@sym", "[unknown]");
+   // printf("[unknown]\n");
     BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", -1);
+   // printf("-1\n");
   }
 }
 
@@ -379,6 +384,7 @@ static void perf_sql__bind_dsoname(struct perf_sql *S, struct map *map)
 	}
 
   BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@dso", dsoname);
+ // printf("%s\n",dsoname);
 }
 
 static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr)
@@ -388,8 +394,10 @@ static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr
 	if (map && map->dso) {
 		srcline = get_srcline(map->dso,
 				      map__rip_2objdump(map, addr), NULL, true);
-		if (srcline != SRCLINE_UNKNOWN)
+		if (srcline != SRCLINE_UNKNOWN) {
       BIND_INSERT_AND_SELECT(text_transient, S->stmt_ip, "@srcline", srcline);
+     // printf("%s\n",srcline);
+    }
 		free_srcline(srcline);
 	}
 }
@@ -405,6 +413,7 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
     return;
 
   BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", sample->ip);
+ // printf("%lu\n",sample->ip);
   perf_sql__bind_symname_offs(S, al->sym, al);
   perf_sql__bind_dsoname(S, al->map);
   perf_sql__bind_srcline(S, al->map, al->addr);
@@ -413,9 +422,9 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
   CALL_SQLITE(reset(S->stmt_ip),S->db);
   CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
 
-  printf("%s\n", sqlite3_sql(S->stmt_ip_sel));
+ // printf("%s\n", sqlite3_sql(S->stmt_ip_sel));
   CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
-  printf("xxx\n");
+ // printf("xxx\n");
   rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
   //rowid = sqlite3_last_insert_rowid(S->db);
   perf_sql__bind_sample_int64(S, evsel, "@ip_id", rowid);
@@ -463,7 +472,7 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
     if (node->sym && node->sym->ignore)
       goto next;
 
-    perf_sql__bind_int64(S->stmt_ip, "@ip", node->ip);
+    BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", node->ip);
 
     if (node->map)
       addr = node->map->map_ip(node->map, node->ip);
@@ -478,9 +487,14 @@ void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,
     CALL_SQLITE_EXPECT(step(S->stmt_ip),DONE,S->db);
     CALL_SQLITE(reset(S->stmt_ip),S->db);
     CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
-    rowid = sqlite3_last_insert_rowid(S->db);
+
+    CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
+    rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
+    //rowid = sqlite3_last_insert_rowid(S->db);
     snprintf(rowidstr, intlen, "%lld/", rowid);
     strcat(callchain_val, rowidstr);
+    CALL_SQLITE(reset(S->stmt_ip_sel),S->db);
+    CALL_SQLITE(clear_bindings(S->stmt_ip_sel),S->db);
 
     stack_depth--;
 next:
@@ -530,11 +544,12 @@ void perf_sql__insert_regs(struct perf_sql *S, struct perf_evsel *evsel,
 static sqlite3_int64 perf_sql__insert_branch_addr(struct perf_sql *S,
                       struct thread *thread, u8 cpumode, u64 addr)
 {
+  sqlite3_int64 rowid = 0;
 	struct addr_location al;
 	memset(&al, 0, sizeof(al));
 
   thread__find_addr_map(thread, cpumode, MAP__FUNCTION, addr, &al);
-  perf_sql__bind_int64(S->stmt_ip, "@ip", addr);
+  BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", addr);
   if (al.map)
     al.sym = map__find_symbol(al.map, al.addr, NULL);
   perf_sql__bind_symname_offs(S, al.sym, &al);
@@ -543,7 +558,13 @@ static sqlite3_int64 perf_sql__insert_branch_addr(struct perf_sql *S,
   CALL_SQLITE_EXPECT(step(S->stmt_ip),DONE,S->db);
   CALL_SQLITE(reset(S->stmt_ip),S->db);
   CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
-  return sqlite3_last_insert_rowid(S->db);
+
+  CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
+  rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
+  CALL_SQLITE(reset(S->stmt_ip_sel),S->db);
+  CALL_SQLITE(clear_bindings(S->stmt_ip_sel),S->db);
+
+  return rowid;
 }
 
 static inline const char *

@@ -655,6 +655,7 @@ static void process_event_sql(union perf_event *event,
   struct perf_event_attr *attr = &evsel->attr;
   sqlite3_stmt *sample_stmt = perf_sql__get_stmt(sql, evsel);
 
+  //printf("!!!!!! new sample\n");
   perf_sql__bind_sample_int64(sql, evsel, "@time", sample->time);
   perf_sql__bind_sample_text(sql, evsel, "@comm", thread__comm_str(thread));
   perf_sql__bind_sample_int64(sql, evsel, "@pid", sample->pid);
@@ -670,7 +671,9 @@ static void process_event_sql(union perf_event *event,
   //perf_sql__bind_sample_int(sql, evsel, "@attr_id", perf_sql__get_attr_id(sql,evsel));
 
   perf_sql__insert_ip(sql, evsel, sample, al);
+  //printf("## callchain\n");
   perf_sql__insert_callchain(sql, evsel, sample, al, scripting_max_stack);
+  //printf("## branch stack\n");
   perf_sql__insert_branch_stack(sql, evsel, event, sample, thread, attr);
   perf_sql__insert_regs(sql, evsel, event, sample, thread, attr, "@iregs_id");
   perf_sql__insert_regs(sql, evsel, event, sample, thread, attr, "@uregs_id");
