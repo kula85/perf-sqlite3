@@ -4,9 +4,11 @@
 #include "machine.h"
 #include "sql.h"
 
+// TODO use functions like sqlite3_snprintf save on memory allocation.
+
 static void new_table_attr(struct perf_sql *S) {
   const char *table = \
-          "CREATE TABLE IF NOT EXISTS attr(" \
+          "CREATE TABLE attr(" \
                 "id integer primary key," \
                 "type integer," \
                 "size integer," \
@@ -23,9 +25,10 @@ static void new_table_attr(struct perf_sql *S) {
                 "sample_regs_user integer," \
                 "sample_stack_user integer," \
                 "__reserved_2 integer," \
-                "sample_regs_intr integer);";
+                "sample_regs_intr integer," \
+                "unique(id,type,size,config,period,sample_type,read_format,flags,wakeup,bp_type,config1,config2,branch_sample_type,sample_regs_user,sample_stack_user,__reserved_2,sample_regs_intr));";
   const char *stmt = \
-          "insert into attr values(" \
+          "insert or ignore into attr values(" \
           "null,@type,@size,@config,@period,@sample_type,@read_format,@flags,@wakeup,@bp_type,@config1,@config2,@branch_sample_type,@sample_regs_user,@sample_stack_user,@__reserved_2,@sample_regs_intr);";
   perf_sql__exec(S->db, table);
   CALL_SQLITE(prepare_v2(S->db, stmt,
@@ -34,23 +37,34 @@ static void new_table_attr(struct perf_sql *S) {
 
 static void new_table_ip(struct perf_sql *S) {
   const char *table = \
-          "CREATE TABLE IF NOT EXISTS ip(" \
+          "CREATE TABLE ip(" \
                 "id integer primary key," \
                 "ip integer," \
                 "sym text," \
                 "off integer," \
                 "dso text," \
-                "srcline text);";
+                "srcline text," \
+                "unique(ip,sym,off,dso,srcline));";
   const char *stmt = \
-          "insert into ip values(null,@ip,@sym,@off,@dso,@srcline);";
+          "insert or ignore into ip values(null,@ip,@sym,@off,@dso,@srcline);";
+  const char *stmt_sel = "select id from ip where " \
+         "ip = @ip and " \
+         "sym = @sym and " \
+         "off = @off and " \
+         "dso = @dso and " \
+         "srcline is @srcline;";
   perf_sql__exec(S->db, table);
   CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_ip, NULL),S->db);
+  CALL_SQLITE(prepare_v2(S->db, stmt_sel,
+              strlen(stmt_sel)+1, &S->stmt_ip_sel, NULL),S->db);
 }
 
+
+// TODO relate to ip table with column(dso,offset)?
 static void new_table_branch_entry(struct perf_sql *S) {
   const char *table = \
-          "CREATE TABLE IF NOT EXISTS branch_entry(" \
+          "CREATE TABLE branch_entry(" \
                 "id integer primary key,  " \
                 "\"from\" integer references ip(id),        " \
                 "\"to\" integer references ip(id),          " \
@@ -67,7 +81,7 @@ static void new_table_branch_entry(struct perf_sql *S) {
 
 static void new_table_regs(struct perf_sql *S) {
   const char *table = \
-          "CREATE TABLE IF NOT EXISTS regs(" \
+          "CREATE TABLE regs(" \
                 "id integer primaty key,     " \
                 "ax integer,     " \
                 "bx integer,     " \
@@ -92,13 +106,42 @@ static void new_table_regs(struct perf_sql *S) {
                 "r12 integer,    " \
                 "r13 integer,    " \
                 "r14 integer,    " \
-                "r15 integer);";
+                "r15 integer,    " \
+                "unique(ax,bx,cx,dx,si,di,bp,sp,ip,flags,cs,ss,ds,es,fs,gs,r8,r9,r10,r11,r12,r13,r14,r15));";
   const char *stmt = \
-          "insert into regs values(null,@ax,@bx,@cx,@dx,@si,@di,@bp,@sp,@ip,@flags,@cs,@ss,@ds,@es,@fs,@gs,@r8,@r9,@r10,@r11,@r12,@r13,@r14,@r15);";
+          "insert or ignore into regs values(null,@ax,@bx,@cx,@dx,@si,@di,@bp,@sp,@ip,@flags,@cs,@ss,@ds,@es,@fs,@gs,@r8,@r9,@r10,@r11,@r12,@r13,@r14,@r15);";
+  const char *stmt_sel = "select id from regs where " \
+         "ax = @ax and " \
+         "bx = @bx and " \
+         "cx = @cx and " \
+         "dx = @dx and " \
+         "si = @si and " \
+         "di = @di and " \
+         "bp = @bp and " \
+         "sp = @sp and " \
+         "ip = @ip and " \
+         "flags = @flags and " \
+         "cs = @cs and " \
+         "ss = @ss and " \
+         "ds = @ds and " \
+         "es = @es and " \
+         "fs = @fs and " \
+         "gs = @gs and " \
+         "r8 = @r8 and " \
+         "r9 = @r9 and " \
+         "r10 = @r10 and " \
+         "r11 = @r11 and " \
+         "r12 = @r12 and " \
+         "r13 = @r13 and " \
+         "r14 = @r14 and " \
+         "r15 = @r15;";
   perf_sql__exec(S->db, table);
   CALL_SQLITE(prepare_v2(S->db, stmt,
               strlen(stmt)+1, &S->stmt_regs, NULL),S->db);
+  CALL_SQLITE(prepare_v2(S->db, stmt_sel,
+              strlen(stmt_sel)+1, &S->stmt_regs_sel, NULL),S->db);
 }
+
 
 struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
   int FK = 0;
@@ -234,26 +277,26 @@ struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
 // TODO check if int64 to u64 conversion succeed
 void perf_sql__bind_int64(sqlite3_stmt *stmt, const char *zName, sqlite3_int64 v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  assert(idx);
-  CALL_SQLITE_ASSERT(bind_int64(stmt, idx, v));
+  if (idx)
+    CALL_SQLITE_ASSERT(bind_int64(stmt, idx, v));
 }
 
 void perf_sql__bind_int(sqlite3_stmt *stmt, const char *zName, int v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  assert(idx);
-  CALL_SQLITE_ASSERT(bind_int(stmt, idx, v));
+  if (idx)
+    CALL_SQLITE_ASSERT(bind_int(stmt, idx, v));
 }
 
 void perf_sql__bind_text(sqlite3_stmt *stmt, const char *zName, const char *v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  assert (idx);
-  CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_STATIC));
+  if (idx)
+    CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_STATIC));
 }
 
 static void perf_sql__bind_text_transient(sqlite3_stmt *stmt, const char *zName, const char *v) {
   int idx = sqlite3_bind_parameter_index(stmt, zName);
-  assert (idx);
-  CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_TRANSIENT));
+  if (idx)
+    CALL_SQLITE_ASSERT(bind_text(stmt, idx, v, -1, SQLITE_TRANSIENT));
 }
 
 sqlite3_stmt *perf_sql__get_stmt(struct perf_sql *S, struct perf_evsel *evsel) {
@@ -294,6 +337,14 @@ void perf_sql__bind_sample_text(struct perf_sql *S, struct perf_evsel *evsel,
   perf_sql__bind_text(stmt, zName, v);
 }
 
+#define BIND_INSERT_AND_SELECT(__f,__a1,__a2,__a3) \
+  do {  \
+    perf_sql__bind_##__f(__a1, __a2, __a3);  \
+    perf_sql__bind_##__f(__a1 ## _sel, __a2, __a3); \
+  } while(0);
+
+
+
 static void perf_sql__bind_symname_offs(struct perf_sql *S,
             const struct symbol *sym,
 				    const struct addr_location *al)
@@ -301,18 +352,18 @@ static void perf_sql__bind_symname_offs(struct perf_sql *S,
 	unsigned long offset;
 
 	if (sym && sym->name) {
-    perf_sql__bind_text(S->stmt_ip, "@sym", sym->name);
+    BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@sym", sym->name);
 		if (al) {
 			if (al->addr < sym->end)
 				offset = al->addr - sym->start;
 			else
 				offset = al->addr - al->map->start - sym->start;
-      perf_sql__bind_int64(S->stmt_ip, "@off", offset);
+      BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", offset);
 		} else
-      perf_sql__bind_int(S->stmt_ip, "@off", -1);
+      BIND_INSERT_AND_SELECT(int, S->stmt_ip, "@off", -1);
 	} else {
-    perf_sql__bind_text(S->stmt_ip, "@sym", "[unknown]");
-    perf_sql__bind_int64(S->stmt_ip, "@off", -1);
+    BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@sym", "[unknown]");
+    BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@off", -1);
   }
 }
 
@@ -327,7 +378,7 @@ static void perf_sql__bind_dsoname(struct perf_sql *S, struct map *map)
 			dsoname = map->dso->name;
 	}
 
-  perf_sql__bind_text(S->stmt_ip, "@dso", dsoname);
+  BIND_INSERT_AND_SELECT(text, S->stmt_ip, "@dso", dsoname);
 }
 
 static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr)
@@ -338,7 +389,7 @@ static void perf_sql__bind_srcline(struct perf_sql *S, struct map *map, u64 addr
 		srcline = get_srcline(map->dso,
 				      map__rip_2objdump(map, addr), NULL, true);
 		if (srcline != SRCLINE_UNKNOWN)
-      perf_sql__bind_text_transient(S->stmt_ip, "@srcline", srcline);
+      BIND_INSERT_AND_SELECT(text_transient, S->stmt_ip, "@srcline", srcline);
 		free_srcline(srcline);
 	}
 }
@@ -353,15 +404,24 @@ void perf_sql__insert_ip(struct perf_sql *S, struct perf_evsel *evsel,
   if (al->sym && al->sym->ignore)
     return;
 
-  perf_sql__bind_int64(S->stmt_ip, "@ip", sample->ip);
+  BIND_INSERT_AND_SELECT(int64, S->stmt_ip, "@ip", sample->ip);
   perf_sql__bind_symname_offs(S, al->sym, al);
   perf_sql__bind_dsoname(S, al->map);
   perf_sql__bind_srcline(S, al->map, al->addr);
+
   CALL_SQLITE_EXPECT(step(S->stmt_ip),DONE,S->db);
   CALL_SQLITE(reset(S->stmt_ip),S->db);
   CALL_SQLITE(clear_bindings(S->stmt_ip),S->db);
-  rowid = sqlite3_last_insert_rowid(S->db);
+
+  printf("%s\n", sqlite3_sql(S->stmt_ip_sel));
+  CALL_SQLITE_EXPECT(step(S->stmt_ip_sel),ROW,S->db);
+  printf("xxx\n");
+  rowid = sqlite3_column_int64(S->stmt_ip_sel, 0);
+  //rowid = sqlite3_last_insert_rowid(S->db);
   perf_sql__bind_sample_int64(S, evsel, "@ip_id", rowid);
+
+  CALL_SQLITE(reset(S->stmt_ip_sel),S->db);
+  CALL_SQLITE(clear_bindings(S->stmt_ip_sel),S->db);
 }
 
 void perf_sql__insert_callchain(struct perf_sql *S, struct perf_evsel *evsel,

@@ -43,8 +43,11 @@ struct ev2stmt {
 struct perf_sql {
   sqlite3 *db;
   sqlite3_stmt *stmt_attr;
+  sqlite3_stmt *stmt_attr_sel;
   sqlite3_stmt *stmt_ip;
+  sqlite3_stmt *stmt_ip_sel;
   sqlite3_stmt *stmt_regs;
+  sqlite3_stmt *stmt_regs_sel;
   sqlite3_stmt *stmt_branch_entry;
   u8 nr;
   struct ev2stmt sample[0];
