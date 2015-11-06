@@ -1029,6 +1029,11 @@ static int __cmd_script(struct perf_script *script)
     perf_sql__exec(sql->db, "BEGIN TRANSACTION");
 	  ret = perf_session__process_events(script->session);
     perf_sql__exec(sql->db, "END TRANSACTION");
+
+    // this should return SQLITE_DONE not SQLITE_ROW.
+    perf_sql__exec(sql->db,
+            "select count(id) as c1 from ip group by sym,off,dso having c1 > 1;");
+
   } else
     ret = perf_session__process_events(script->session);
 

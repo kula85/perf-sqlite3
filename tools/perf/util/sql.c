@@ -171,7 +171,6 @@ static void new_table_regs(struct perf_sql *S) {
               strlen(stmt_sel)+1, &S->stmt_regs_sel, NULL),S->db);
 }
 
-
 struct perf_sql *perf_sql__new(const char *name, struct perf_evlist *evlist) {
   int FK = 0;
   int i = -1;
