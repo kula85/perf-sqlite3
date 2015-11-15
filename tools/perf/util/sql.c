@@ -4,6 +4,8 @@
 #include "machine.h"
 #include "sql.h"
 
+// TODO add tracepoints support
+
 static void new_table_attr(struct perf_sql *S) {
   const char *table = \
           "CREATE TABLE attr(" \
